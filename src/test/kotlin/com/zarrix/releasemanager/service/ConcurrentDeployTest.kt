@@ -1,20 +1,23 @@
-package com.zarrix.releasemanager.persistence
+package com.zarrix.releasemanager.service
 
-import com.zarrix.releasemanager.application.ReleaseManagerService
+import com.zarrix.releasemanager.PostgresTestConfiguration
 import com.zarrix.releasemanager.domain.DeployedService
 import com.zarrix.releasemanager.domain.Environment
 import com.zarrix.releasemanager.domain.SystemVersion
-import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.simple.JdbcClient
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.collections.forEach
 
 @SpringBootTest
+@Import(PostgresTestConfiguration::class)
 class ConcurrentDeployTest(
     @Autowired private val releaseManager: ReleaseManagerService,
     @Autowired private val jdbc: JdbcClient,
@@ -28,8 +31,8 @@ class ConcurrentDeployTest(
 
         val versions = inParallel { i -> releaseManager.deploy(environment, DeployedService("service-$i", 1)) }
 
-        assertThat(versions.map { it.value }).containsExactlyInAnyOrderElementsOf(1L..parallelism)
-        assertThat(releaseManager.servicesAt(environment, SystemVersion(parallelism.toLong())))
+        Assertions.assertThat(versions.map { it.value }).containsExactlyInAnyOrderElementsOf(1L..parallelism)
+        Assertions.assertThat(releaseManager.servicesAt(environment, SystemVersion(parallelism.toLong())))
             .hasSize(parallelism)
             .extracting<String> { it.name }
             .containsExactlyInAnyOrderElementsOf((0 until parallelism).map { "service-$it" })
@@ -42,8 +45,8 @@ class ConcurrentDeployTest(
 
         val versions = inParallel { releaseManager.deploy(environment, DeployedService("service", 1)) }
 
-        assertThat(versions).containsOnly(SystemVersion(1))
-        assertThat(ledgerSize(environment)).isEqualTo(1)
+        Assertions.assertThat(versions).containsOnly(SystemVersion(1))
+        Assertions.assertThat(ledgerSize(environment)).isEqualTo(1)
         assertCounterMatchesLedger(environment)
     }
 
@@ -53,7 +56,7 @@ class ConcurrentDeployTest(
 
         val versions = inParallel { i -> releaseManager.deploy(environments[i], DeployedService("service", 1)) }
 
-        assertThat(versions).containsOnly(SystemVersion(1))
+        Assertions.assertThat(versions).containsOnly(SystemVersion(1))
         environments.forEach(::assertCounterMatchesLedger)
     }
 
@@ -91,6 +94,6 @@ class ConcurrentDeployTest(
             .param("environment", environment.name)
             .query(Long::class.java)
             .single()
-        assertThat(counter).isEqualTo(ledgerMax)
+        Assertions.assertThat(counter).isEqualTo(ledgerMax)
     }
 }

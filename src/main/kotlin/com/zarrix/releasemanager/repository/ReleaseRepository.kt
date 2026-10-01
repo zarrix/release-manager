@@ -1,4 +1,4 @@
-package com.zarrix.releasemanager.application
+package com.zarrix.releasemanager.repository
 
 import com.zarrix.releasemanager.domain.DeployedService
 import com.zarrix.releasemanager.domain.Deployment
@@ -7,10 +7,8 @@ import com.zarrix.releasemanager.domain.SystemVersion
 
 interface ReleaseRepository {
 
-    /** Creates the environment's counter row if absent. Runs in its own transaction. */
     fun ensureEnvironment(environment: Environment)
 
-    /** Reads the environment's counter and holds a row lock on it until the transaction ends. */
     fun lockCurrentVersion(environment: Environment): SystemVersion
 
     fun currentVersion(environment: Environment): SystemVersion?

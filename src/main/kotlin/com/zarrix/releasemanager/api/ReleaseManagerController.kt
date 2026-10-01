@@ -1,6 +1,6 @@
 package com.zarrix.releasemanager.api
 
-import com.zarrix.releasemanager.application.ReleaseManagerService
+import com.zarrix.releasemanager.service.ReleaseManagerService
 import com.zarrix.releasemanager.domain.DeployedService
 import com.zarrix.releasemanager.domain.Environment
 import com.zarrix.releasemanager.domain.SystemVersion
@@ -24,18 +24,15 @@ class ReleaseManagerController(private val releaseManager: ReleaseManagerService
 
     @Operation(
         summary = "Report a deployment",
-        description = "Records that a service version is deployed in an environment (optional, defaults to \"default\"). " +
-            "Increments the environment's SystemVersion only if the service is new or its version differs from the one " +
-            "currently known; otherwise returns the current SystemVersion unchanged.",
+        description = "Records that a service version is deployed in an environment (optional, defaults to \"default\"). ",
     )
-    @ApiResponse(responseCode = "200", description = "Current SystemVersion of the environment")
+    @ApiResponse(responseCode = "200", description = "Current SystemVersion of the environment, as a bare integer")
     @ApiResponse(responseCode = "400", description = "Invalid request", content = [Content(schema = Schema(implementation = ProblemDetail::class))])
     @PostMapping("/deploy")
-    fun deploy(@Valid @RequestBody request: DeployRequest): DeployResponse {
+    fun deploy(@Valid @RequestBody request: DeployRequest): Long {
         val environment = Environment.of(request.environment)
         val service = DeployedService(requireNotNull(request.name).trim(), requireNotNull(request.version))
-        val systemVersion = releaseManager.deploy(environment, service)
-        return DeployResponse(systemVersion.value, environment.name)
+        return releaseManager.deploy(environment, service).value
     }
 
     @Operation(

@@ -3,10 +3,12 @@ package com.zarrix.releasemanager.api
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import com.zarrix.releasemanager.PostgresTestConfiguration
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.http.MediaType.APPLICATION_JSON
 import org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON
+import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.test.json.JsonCompareMode.STRICT
 import org.springframework.test.web.servlet.MockMvc
@@ -17,8 +19,9 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPat
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 
 @SpringBootTest
+@Import(PostgresTestConfiguration::class)
 @AutoConfigureMockMvc
-class ReleaseManagerAcceptanceTest(
+class ReleaseManagerIntegrationTest(
     @Autowired private val mockMvc: MockMvc,
     @Autowired private val jdbc: JdbcClient,
 ) {
@@ -31,10 +34,10 @@ class ReleaseManagerAcceptanceTest(
 
     @Test
     fun `replays the reference scenario`() {
-        deploy("""{"name":"Service A","version":1}""").andExpect(jsonPath("$.systemVersion").value(1))
-        deploy("""{"name":"Service B","version":1}""").andExpect(jsonPath("$.systemVersion").value(2))
-        deploy("""{"name":"Service A","version":2}""").andExpect(jsonPath("$.systemVersion").value(3))
-        deploy("""{"name":"Service B","version":1}""").andExpect(jsonPath("$.systemVersion").value(3))
+        deploy("""{"name":"Service A","version":1}""").andExpect(content().string("1"))
+        deploy("""{"name":"Service B","version":1}""").andExpect(content().string("2"))
+        deploy("""{"name":"Service A","version":2}""").andExpect(content().string("3"))
+        deploy("""{"name":"Service B","version":1}""").andExpect(content().string("3"))
 
         mockMvc.perform(get("/services").param("systemVersion", "2"))
             .andExpect(status().isOk)
@@ -45,20 +48,18 @@ class ReleaseManagerAcceptanceTest(
     }
 
     @Test
-    fun `deploy response names the environment it was applied to`() {
-        deploy("""{"name":"Service A","version":1}""")
-            .andExpect(content().json("""{"systemVersion":1,"environment":"default"}""", STRICT))
-        deploy("""{"name":"Service A","version":1,"environment":"prod"}""")
-            .andExpect(content().json("""{"systemVersion":1,"environment":"prod"}""", STRICT))
+    fun `deploy response is the bare system version number`() {
+        deploy("""{"name":"Service A","version":1}""").andExpect(content().string("1"))
+        deploy("""{"name":"Service A","version":1,"environment":"prod"}""").andExpect(content().string("1"))
     }
 
     @Test
     fun `environments are isolated from default`() {
-        deploy("""{"name":"Service A","version":1}""").andExpect(jsonPath("$.systemVersion").value(1))
-        deploy("""{"name":"Service B","version":1}""").andExpect(jsonPath("$.systemVersion").value(2))
+        deploy("""{"name":"Service A","version":1}""").andExpect(content().string("1"))
+        deploy("""{"name":"Service B","version":1}""").andExpect(content().string("2"))
         deploy("""{"name":"Service A","version":9,"environment":"staging"}""")
-            .andExpect(jsonPath("$.systemVersion").value(1))
-        deploy("""{"name":"Service B","version":1}""").andExpect(jsonPath("$.systemVersion").value(2))
+            .andExpect(content().string("1"))
+        deploy("""{"name":"Service B","version":1}""").andExpect(content().string("2"))
 
         mockMvc.perform(get("/services").param("systemVersion", "1").param("environment", "staging"))
             .andExpect(status().isOk)
@@ -83,6 +84,9 @@ class ReleaseManagerAcceptanceTest(
         mockMvc.perform(get("/services").param("systemVersion", "1").param("environment", "never-seen"))
             .andExpect(status().isNotFound)
             .andExpect(jsonPath("$.detail").value("System version 1 does not exist in environment 'never-seen'"))
+            .andExpect(jsonPath("$.type").value("/errors/unknown_system_version"))
+            .andExpect(jsonPath("$.environment").value("never-seen"))
+            .andExpect(jsonPath("$.systemVersion").value(1))
     }
 
     @Test
@@ -91,6 +95,8 @@ class ReleaseManagerAcceptanceTest(
             .andExpect(status().isBadRequest)
             .andExpect(content().contentTypeCompatibleWith(APPLICATION_PROBLEM_JSON))
             .andExpect(jsonPath("$.detail").value("name: must not be blank"))
+            .andExpect(jsonPath("$.type").value("/errors/invalid_request"))
+            .andExpect(jsonPath("$.invalidFields.name").value("must not be blank"))
         postDeploy("""{"name":"Service A","version":0}""")
             .andExpect(status().isBadRequest)
             .andExpect(jsonPath("$.detail").value("version: must be greater than or equal to 1"))
@@ -99,6 +105,7 @@ class ReleaseManagerAcceptanceTest(
             .andExpect(jsonPath("$.detail").value("version: must not be null"))
         postDeploy("""{"name":"Service A","version":1,"environment":"pr od"}""")
             .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.invalidFields.environment").exists())
         postDeploy("""{"name":"Service A","version":"one"}""")
             .andExpect(status().isBadRequest)
         postDeploy("""{not json""")
@@ -108,10 +115,12 @@ class ReleaseManagerAcceptanceTest(
         mockMvc.perform(get("/services"))
             .andExpect(status().isBadRequest)
             .andExpect(content().contentTypeCompatibleWith(APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.type").value("/errors/invalid_request"))
         mockMvc.perform(get("/services").param("systemVersion", "two"))
             .andExpect(status().isBadRequest)
         mockMvc.perform(get("/services").param("systemVersion", "1").param("environment", "pr od"))
             .andExpect(status().isBadRequest)
+            .andExpect(jsonPath("$.invalidFields.environment").exists())
     }
 
     private fun deploy(body: String) =

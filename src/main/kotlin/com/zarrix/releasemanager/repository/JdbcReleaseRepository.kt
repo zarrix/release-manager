@@ -1,30 +1,26 @@
-package com.zarrix.releasemanager.persistence
+package com.zarrix.releasemanager.repository
 
-import com.zarrix.releasemanager.application.ReleaseRepository
 import com.zarrix.releasemanager.domain.DeployedService
 import com.zarrix.releasemanager.domain.Deployment
 import com.zarrix.releasemanager.domain.Environment
 import com.zarrix.releasemanager.domain.SystemVersion
-import org.springframework.dao.DuplicateKeyException
 import org.springframework.jdbc.core.simple.JdbcClient
 import org.springframework.stereotype.Repository
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
-import java.sql.Timestamp
+import java.time.ZoneOffset
 
 @Repository
 class JdbcReleaseRepository(private val jdbc: JdbcClient) : ReleaseRepository {
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     override fun ensureEnvironment(environment: Environment) {
-        if (currentVersion(environment) != null) return
-        try {
-            jdbc.sql("INSERT INTO release_state (environment, current_system_version) VALUES (:environment, 0)")
-                .param("environment", environment.name)
-                .update()
-        } catch (_: DuplicateKeyException) {
-            // another deploy created the row first; the lock below serializes the rest
-        }
+        jdbc.sql(
+            """
+            INSERT INTO release_state (environment, current_system_version)
+            VALUES (:environment, 0)
+            ON CONFLICT (environment) DO NOTHING
+            """,
+        )
+            .param("environment", environment.name)
+            .update()
     }
 
     override fun lockCurrentVersion(environment: Environment): SystemVersion =
@@ -68,7 +64,7 @@ class JdbcReleaseRepository(private val jdbc: JdbcClient) : ReleaseRepository {
             .param("systemVersion", deployment.systemVersion.value)
             .param("serviceName", deployment.service.name)
             .param("serviceVersion", deployment.service.version)
-            .param("deployedAt", Timestamp.from(deployment.deployedAt))
+            .param("deployedAt", deployment.deployedAt.atOffset(ZoneOffset.UTC))
             .update()
     }
 
@@ -82,14 +78,10 @@ class JdbcReleaseRepository(private val jdbc: JdbcClient) : ReleaseRepository {
     override fun snapshotAt(environment: Environment, systemVersion: SystemVersion): List<DeployedService> =
         jdbc.sql(
             """
-            SELECT service_name, service_version FROM (
-                SELECT service_name, service_version,
-                       ROW_NUMBER() OVER (PARTITION BY service_name ORDER BY system_version DESC) AS recency
-                FROM deployment
-                WHERE environment = :environment AND system_version <= :systemVersion
-            ) latest
-            WHERE recency = 1
-            ORDER BY service_name
+            SELECT DISTINCT ON (service_name) service_name, service_version
+            FROM deployment
+            WHERE environment = :environment AND system_version <= :systemVersion
+            ORDER BY service_name, system_version DESC
             """,
         )
             .param("environment", environment.name)

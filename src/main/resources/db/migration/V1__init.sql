@@ -8,7 +8,7 @@ CREATE TABLE deployment (
   system_version   BIGINT       NOT NULL,
   service_name     VARCHAR(255) NOT NULL,
   service_version  INT          NOT NULL,
-  deployed_at      TIMESTAMP    NOT NULL,
+  deployed_at      TIMESTAMPTZ  NOT NULL,
   PRIMARY KEY (environment, system_version)
 );
 

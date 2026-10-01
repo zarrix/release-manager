@@ -1,36 +1,42 @@
-package com.zarrix.releasemanager.application
+package com.zarrix.releasemanager.service
 
 import com.zarrix.releasemanager.domain.DeployedService
 import com.zarrix.releasemanager.domain.Deployment
 import com.zarrix.releasemanager.domain.Environment
 import com.zarrix.releasemanager.domain.SystemVersion
 import com.zarrix.releasemanager.domain.UnknownSystemVersionException
+import com.zarrix.releasemanager.repository.ReleaseRepository
 import org.springframework.stereotype.Service
-import org.springframework.transaction.support.TransactionOperations
+import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
 
 @Service
 class ReleaseManagerService(
     private val repository: ReleaseRepository,
-    private val transaction: TransactionOperations,
     private val clock: Clock,
 ) {
 
+    @Transactional
     fun deploy(environment: Environment, service: DeployedService): SystemVersion {
         repository.ensureEnvironment(environment)
-        return checkNotNull(transaction.execute { recordIfChanged(environment, service) })
-    }
-
-    private fun recordIfChanged(environment: Environment, service: DeployedService): SystemVersion {
         val current = repository.lockCurrentVersion(environment)
-        if (repository.latestVersionOf(environment, service.name) == service.version) {
+        val latest = repository.latestVersionOf(environment, service.name)
+        if (latest == service.version) {
             return current
         }
         val next = current.next()
-        repository.append(Deployment(environment, next, service, clock.instant()))
+        repository.append(
+            Deployment(
+                environment = environment,
+                systemVersion = next,
+                service = service,
+                deployedAt = clock.instant(),
+            ),
+        )
         repository.updateCurrentVersion(environment, next)
         return next
     }
+
 
     fun servicesAt(environment: Environment, systemVersion: SystemVersion): List<DeployedService> {
         val current = repository.currentVersion(environment)
